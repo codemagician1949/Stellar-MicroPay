@@ -12,6 +12,8 @@ export type PaymentFlowStatus =
   | "success"
   | "error";
 
+const TX_TIMEOUT_SECONDS = 60;
+
 export interface PaymentStepTiming {
   startedAt: number | null;
   completedAt: number | null;
@@ -27,6 +29,7 @@ interface PaymentStatusModalProps {
   stepTimings: Record<PaymentStepId, PaymentStepTiming>;
   onClose: () => void;
   explorerHref?: string | null;
+  timeoutSeconds?: number;
 }
 
 const STEP_ORDER: Array<{ id: PaymentStepId; label: string }> = [
@@ -45,6 +48,7 @@ export default function PaymentStatusModal({
   stepTimings,
   onClose,
   explorerHref,
+  timeoutSeconds = TX_TIMEOUT_SECONDS,
 }: PaymentStatusModalProps) {
   const [now, setNow] = useState(() => Date.now());
 
@@ -146,6 +150,14 @@ export default function PaymentStatusModal({
               />
             </div>
           </div>
+
+          {!isTerminal && (
+            <CountdownTimer
+              startedAt={stepTimings.building.startedAt}
+              timeoutSeconds={timeoutSeconds}
+              now={now}
+            />
+          )}
         </div>
 
         <div className="space-y-4 px-6 py-5">
@@ -261,6 +273,56 @@ function formatElapsed(timing: PaymentStepTiming, now: number) {
   }
 
   return `${seconds}s`;
+}
+
+function CountdownTimer({
+  startedAt,
+  timeoutSeconds,
+  now,
+}: {
+  startedAt: number | null;
+  timeoutSeconds: number;
+  now: number;
+}) {
+  if (!startedAt) return null;
+
+  const elapsedMs = now - startedAt;
+  const remainingMs = Math.max(0, timeoutSeconds * 1000 - elapsedMs);
+  const remainingSeconds = Math.ceil(remainingMs / 1000);
+  const fraction = remainingMs / (timeoutSeconds * 1000);
+
+  const isUrgent = remainingSeconds <= 10;
+  const isWarning = remainingSeconds <= 20;
+
+  if (remainingSeconds <= 0) return null;
+
+  return (
+    <div className="mt-3 flex items-center gap-3">
+      <div className="flex-1 h-1.5 overflow-hidden rounded-full bg-white/5">
+        <div
+          className={`h-full rounded-full transition-all duration-1000 ${
+            isUrgent
+              ? "bg-red-500"
+              : isWarning
+                ? "bg-amber-400"
+                : "bg-stellar-400"
+          }`}
+          style={{ width: `${fraction * 100}%` }}
+        />
+      </div>
+      <span
+        className={`text-xs font-medium whitespace-nowrap tabular-nums ${
+          isUrgent
+            ? "text-red-400"
+            : isWarning
+              ? "text-amber-300"
+              : "text-slate-400"
+        }`}
+      >
+        {isUrgent ? `${remainingSeconds}s left` : `~${remainingSeconds}s remaining`}
+      </span>
+    </div>
+  );
 }
 
 function StepIcon({

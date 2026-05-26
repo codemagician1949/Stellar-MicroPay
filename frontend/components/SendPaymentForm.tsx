@@ -13,6 +13,7 @@ import PaymentStatusModal, {
 } from "@/components/PaymentStatusModal";
 import {
   buildPaymentTransaction,
+  buildReceiptMintTransaction,
   buildSorobanTipTransaction,
   explorerUrl,
   fetchNetworkFeeStats,
@@ -126,23 +127,13 @@ export default function SendPaymentForm({
   const [stepTimings, setStepTimings] = useState<Record<PaymentStepId, PaymentStepTiming>>(
     createInitialStepTimings()
   );
+  const [mintingReceipt, setMintingReceipt] = useState(false);
+  const [receiptMinted, setReceiptMinted] = useState(false);
+  const [receiptError, setReceiptError] = useState<string | null>(null);
   const [isScannerSupported, setIsScannerSupported] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [networkFeeXlm, setNetworkFeeXlm] = useState(0.00001);
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async () => {
-    if (!txHash) return;
-    try {
-      await navigator.clipboard.writeText(txHash);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // clipboard not available
-    }
-  };
-
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const detectorRef = useRef<BarcodeDetectorLike | null>(null);
@@ -422,6 +413,28 @@ export default function SendPaymentForm({
     setStatus("idle");
   };
 
+  const mintNftReceipt = async () => {
+    if (!txHash) return;
+    setMintingReceipt(true);
+    setReceiptError(null);
+    try {
+      const tx = await buildReceiptMintTransaction({
+        fromPublicKey: publicKey,
+        toPublicKey: destination,
+        amount: amountNum.toFixed(7),
+        memo: memo.trim() || undefined,
+      });
+      const { signedXDR, error: signError } = await signTransactionWithWallet(tx.toXDR());
+      if (signError || !signedXDR) throw new Error(signError || "Receipt signing failed");
+      const result = await submitTransaction(signedXDR);
+      setReceiptMinted(true);
+    } catch (err: any) {
+      setReceiptError(err?.message || "Failed to mint receipt");
+    } finally {
+      setMintingReceipt(false);
+    }
+  };
+
   const executeSend = async () => {
     if (!canSubmit) return;
     startTracker();
@@ -497,12 +510,15 @@ export default function SendPaymentForm({
   };
 
   const [copied, setCopied] = useState(false);
-  const handleCopy = () => {
+  const handleCopy = async () => {
     if (!txHash) return;
-    navigator.clipboard.writeText(txHash).then(() => {
+    try {
+      await navigator.clipboard.writeText(txHash);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    });
+    } catch {
+      // clipboard not available
+    }
   };
 
   if (status === "success" && txHash) {
@@ -534,6 +550,35 @@ export default function SendPaymentForm({
           <a href={explorerUrl(txHash)} target="_blank" rel="noopener noreferrer" className="btn-primary flex items-center justify-center gap-2">
             View on Explorer <ExternalLinkIcon className="h-4 w-4" />
           </a>
+
+          {!receiptMinted ? (
+            <button
+              onClick={() => void mintNftReceipt()}
+              disabled={mintingReceipt}
+              className="btn-secondary flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {mintingReceipt ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
+                  Minting receipt…
+                </>
+              ) : (
+                <>
+                  <ReceiptIcon className="h-4 w-4" />
+                  Mint NFT Receipt
+                </>
+              )}
+            </button>
+          ) : (
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200 text-center">
+              NFT receipt minted successfully!
+            </div>
+          )}
+
+          {receiptError && (
+            <p className="text-xs text-red-400 text-center">{receiptError}</p>
+          )}
+
           <button onClick={() => setStatus("idle")} className="text-sm text-slate-400 hover:text-white transition-colors">
             Send another payment
           </button>
@@ -697,6 +742,7 @@ export default function SendPaymentForm({
         error={error}
         failedStep={failedStep}
         stepTimings={stepTimings}
+        timeoutSeconds={60}
         onClose={closeStatusModal}
       />
     </div>
@@ -772,6 +818,14 @@ function InfoIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  );
+}
+
+function ReceiptIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
     </svg>
   );
 }

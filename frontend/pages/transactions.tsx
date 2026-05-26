@@ -43,6 +43,7 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
   const [directionFilter, setDirectionFilter] =
     useState<TransactionDirectionFilter>("all");
   const [minimumAmount, setMinimumAmount] = useState("");
+  const [memoSearch, setMemoSearch] = useState("");
   const [filtersReady, setFiltersReady] = useState(false);
   const [receiptPayment, setReceiptPayment] = useState<PaymentRecord | null>(null);
 
@@ -50,8 +51,9 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
     () => ({
       direction: directionFilter,
       minAmount: minimumAmount,
+      memoSearch: memoSearch,
     }),
-    [directionFilter, minimumAmount]
+    [directionFilter, minimumAmount, memoSearch]
   );
 
   const filteredPayments = useMemo(
@@ -60,7 +62,9 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
   );
 
   const activeFilterCount =
-    (directionFilter !== "all" ? 1 : 0) + (minimumAmount.trim() !== "" ? 1 : 0);
+    (directionFilter !== "all" ? 1 : 0) +
+    (minimumAmount.trim() !== "" ? 1 : 0) +
+    (memoSearch.trim() !== "" ? 1 : 0);
   const hasActiveFilters = activeFilterCount > 0;
   const exportPayments = filteredPayments;
   const networkLabel = NETWORK === "mainnet" ? "Mainnet" : "Testnet";
@@ -81,6 +85,9 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
       }
       if (typeof parsed.minAmount === "string") {
         setMinimumAmount(parsed.minAmount);
+      }
+      if (typeof parsed.memoSearch === "string") {
+        setMemoSearch(parsed.memoSearch);
       }
     } catch {
       try {
@@ -109,6 +116,7 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
   const handleResetFilters = () => {
     setDirectionFilter("all");
     setMinimumAmount("");
+    setMemoSearch("");
   };
 
   const handleExport = async (format: "csv" | "json") => {
@@ -382,6 +390,20 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
                 XLM
               </span>
             </div>
+          </div>
+
+          <div className="w-full sm:w-56">
+            <label htmlFor="memo-search" className="label mb-2">
+              Search Memo
+            </label>
+            <input
+              id="memo-search"
+              type="text"
+              value={memoSearch}
+              onChange={(event) => setMemoSearch(event.target.value)}
+              placeholder="Filter by memo text…"
+              className="input-field py-2.5"
+            />
           </div>
         </div>
 

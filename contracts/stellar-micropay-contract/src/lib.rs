@@ -1,17 +1,15 @@
+#![no_std]
+
 /**
  * contracts/stellar-micropay-contract/src/lib.rs
  *
  * Stellar MicroPay — Soroban Smart Contract
  *
- * This is the v1 template. It provides the foundation for:
+ * Provides:
  *   - Escrow payments (ROADMAP v2.1)
  *   - Creator tipping (ROADMAP v1.4)
  *   - Micro-transaction batching (ROADMAP v2.0)
- *
- * Current functionality:
- *   - Initialize the contract with an admin
- *   - Record tips sent between accounts
- *   - Query tip totals per recipient
+ *   - NFT payment receipts (ROADMAP v1.5)
  *
  * Build:
  *   cargo build --target wasm32-unknown-unknown --release
@@ -22,8 +20,6 @@
  *     --source YOUR_SECRET_KEY \
  *     --network testnet
  */
-
-#![no_std]
 
 use soroban_sdk::{
     contract, contractimpl, contracttype,
@@ -46,6 +42,24 @@ pub struct TipRecord {
     pub ledger: u32,
 }
 
+/// On-chain receipt metadata minted as proof of payment.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ReceiptMetadata {
+    /// The payer's Stellar address
+    pub from: Address,
+    /// The payee's Stellar address
+    pub to: Address,
+    /// Amount in stroops (1 XLM = 10_000_000 stroops)
+    pub amount: i128,
+    /// ISO-8601 timestamp of when the receipt was minted
+    pub timestamp: u64,
+    /// Optional payment memo
+    pub memo: Symbol,
+    /// Ledger number when this receipt was minted
+    pub ledger: u32,
+}
+
 /// Storage key for per-recipient tip totals
 #[contracttype]
 pub enum DataKey {
@@ -54,6 +68,10 @@ pub enum DataKey {
     TipCount(Address),
     /// Latest tip record for a recipient (indexed by recipient + count)
     TipRecord(Address, u32),
+    /// Total receipt count for a payer
+    ReceiptCount(Address),
+    /// Receipt record indexed by (payer, index)
+    ReceiptRecord(Address, u32),
 }
 
 // ─── Contract ─────────────────────────────────────────────────────────────────
@@ -179,6 +197,79 @@ impl MicroPayContract {
             .expect("Tip record not found")
     }
 
+    // ─── NFT Receipts ───────────────────────────────────────────────────────
+
+    /// Mint an on-chain receipt as proof of payment.
+    ///
+    /// Stores receipt metadata (amount, timestamp, memo) under the payer's
+    /// address and emits a `receipt` event. The returned `u32` is the receipt
+    /// index (NFT ID) for this payer.
+    ///
+    /// Parameters:
+    ///   - from:   The payer (must authorize this call)
+    ///   - to:     The payee
+    ///   - amount: Amount in stroops
+    ///   - memo:   Optional payment memo (max 28 chars, passed as a Symbol)
+    pub fn mint_receipt(
+        env: Env,
+        from: Address,
+        to: Address,
+        amount: i128,
+        memo: Symbol,
+    ) -> u32 {
+        from.require_auth();
+
+        if amount <= 0 {
+            panic!("Receipt amount must be positive");
+        }
+
+        let count: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ReceiptCount(from.clone()))
+            .unwrap_or(0);
+
+        let receipt = ReceiptMetadata {
+            from: from.clone(),
+            to,
+            amount,
+            timestamp: env.ledger().timestamp(),
+            memo,
+            ledger: env.ledger().sequence(),
+        };
+
+        env.storage()
+            .instance()
+            .set(&DataKey::ReceiptRecord(from.clone(), count), &receipt);
+
+        env.storage()
+            .instance()
+            .set(&DataKey::ReceiptCount(from.clone()), &(count + 1));
+
+        env.events().publish(
+            (Symbol::new(&env, "receipt"), from),
+            count,
+        );
+
+        count
+    }
+
+    /// Get the total number of receipts minted for a payer.
+    pub fn get_receipt_count(env: Env, payer: Address) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::ReceiptCount(payer))
+            .unwrap_or(0)
+    }
+
+    /// Get a specific receipt for a payer by index.
+    pub fn get_receipt(env: Env, payer: Address, index: u32) -> ReceiptMetadata {
+        env.storage()
+            .instance()
+            .get(&DataKey::ReceiptRecord(payer, index))
+            .expect("Receipt not found")
+    }
+
     // ─── Placeholders (future features) ──────────────────────────────────────
 
     /// [PLACEHOLDER] Create an escrow payment that releases after a time lock.
@@ -242,6 +333,56 @@ mod tests {
         let admin = Address::generate(&env);
         client.initialize(&admin);
         client.initialize(&admin); // should panic
+    }
+
+    #[test]
+    fn test_mint_receipt() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let payer = Address::generate(&env);
+        let payee = Address::generate(&env);
+
+        env.mock_all_auths();
+
+        let memo = Symbol::new(&env, "Rent");
+        let receipt_id = client.mint_receipt(&payer, &payee, &1000, &memo);
+        assert_eq!(receipt_id, 0);
+
+        assert_eq!(client.get_receipt_count(&payer), 1);
+
+        let stored = client.get_receipt(&payer, &0);
+        assert_eq!(stored.from, payer);
+        assert_eq!(stored.to, payee);
+        assert_eq!(stored.amount, 1000);
+        assert_eq!(stored.memo, memo);
+    }
+
+    #[test]
+    fn test_receipt_count_tracks_multiple_mints() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let payer = Address::generate(&env);
+        let payee1 = Address::generate(&env);
+        let payee2 = Address::generate(&env);
+
+        env.mock_all_auths();
+
+        let id1 = client.mint_receipt(&payer, &payee1, &500, &Symbol::new(&env, "Coffee"));
+        let id2 = client.mint_receipt(&payer, &payee2, &1500, &Symbol::new(&env, "Invoice"));
+
+        assert_eq!(id1, 0);
+        assert_eq!(id2, 1);
+        assert_eq!(client.get_receipt_count(&payer), 2);
     }
 
     #[test]

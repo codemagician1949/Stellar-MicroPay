@@ -20,6 +20,8 @@ const healthRoutes = require("./routes/health");
 const federationRoutes = require("./routes/federation");
 const turretsRoutes = require("./routes/turrets");
 const tipsRoutes = require("./routes/tips");
+const swaggerUi = require("swagger-ui-express");
+const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
 
 const app = express();
@@ -86,6 +88,19 @@ app.use("/api/health", healthRoutes);
 app.use("/api/turrets", turretsRoutes);
 app.use("/api/tips", tipsRoutes);
 app.use("/federation", federationRoutes);
+
+// ─── API Documentation ─────────────────────────────────────────────────────────
+
+app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+  customSiteTitle: "Stellar MicroPay API Docs",
+  customCss: ".swagger-ui .topbar { display: none }",
+  swaggerOptions: { url: "/api/docs.json" },
+}));
+
+app.get("/api/docs.json", (req, res) => {
+  res.setHeader("Content-Type", "application/json");
+  res.send(swaggerSpec);
+});
 
 // ─── Error Handling ────────────────────────────────────────────────────────────
 

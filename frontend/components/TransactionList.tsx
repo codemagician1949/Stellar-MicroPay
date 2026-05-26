@@ -20,6 +20,7 @@ export type TransactionDirectionFilter = "all" | "sent" | "received";
 export interface TransactionFilters {
   direction: TransactionDirectionFilter;
   minAmount: string;
+  memoSearch: string;
 }
 
 interface TransactionListProps {
@@ -44,14 +45,18 @@ export function filterPayments(
     filters.minAmount.trim() === "" ? null : Number(filters.minAmount);
   const hasMinimumAmount =
     minimumAmount !== null && Number.isFinite(minimumAmount) && minimumAmount >= 0;
+  const memoQuery = filters.memoSearch.trim().toLowerCase();
 
   return payments.filter((payment) => {
     const matchesDirection =
       filters.direction === "all" || payment.type === filters.direction;
     const matchesAmount =
       !hasMinimumAmount || Number(payment.amount) >= (minimumAmount ?? 0);
+    const matchesMemo =
+      !memoQuery ||
+      (payment.memo && payment.memo.toLowerCase().includes(memoQuery));
 
-    return matchesDirection && matchesAmount;
+    return matchesDirection && matchesAmount && matchesMemo;
   });
 }
 
@@ -59,7 +64,7 @@ export default function TransactionList({
   publicKey,
   limit = 20,
   compact = false,
-  filters = { direction: "all", minAmount: "" },
+  filters = { direction: "all", minAmount: "", memoSearch: "" },
   onPaymentsChange,
   onPrintReceipt,
   incomingPayment,
@@ -150,7 +155,7 @@ export default function TransactionList({
 
   const visiblePayments = filterPayments(payments, filters);
   const hasActiveFilters =
-    filters.direction !== "all" || filters.minAmount.trim() !== "";
+    filters.direction !== "all" || filters.minAmount.trim() !== "" || filters.memoSearch.trim() !== "";
 
   if (loading) {
     return (
