@@ -596,9 +596,14 @@ export default function SendPaymentForm({
         </div>
         <h2 className="mb-2 font-display text-2xl font-bold text-white">{successTitle}</h2>
         <p className="mb-6 text-slate-400">{successMessage || "Your payment has been confirmed on the Stellar network."}</p>
-        />
-      </>
-    );
+
+        <div className="mb-8 rounded-xl border border-white/5 bg-white/5 p-4">
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">Transaction Hash</p>
+          <div className="flex items-center justify-center gap-2">
+            <code className="text-xs text-stellar-300">{truncatedHash}</code>
+            <button onClick={handleCopy} className="text-slate-500 hover:text-white transition-colors">
+              {copied ? <CheckIcon className="h-3.5 w-3.5 text-green-400" /> : <CopyIcon className="h-3.5 w-3.5" />}
+            </button>
           </div>
         </div>
 
@@ -822,12 +827,7 @@ export default function SendPaymentForm({
         timeoutSeconds={60}
         onClose={closeStatusModal}
       />
-<<<<<<< HEAD
     </>
-=======
-    </div>
-  </>
->>>>>>> caccf0c (fix: Resolve frontend TypeScript compilation errors in CI)
   );
 }
 

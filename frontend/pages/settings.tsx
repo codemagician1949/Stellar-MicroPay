@@ -17,7 +17,6 @@ import {
   TurretsDeployment,
 } from "@/lib/turrets";
 import { shortenAddress } from "@/lib/stellar";
-import { useWallet } from "@/lib/useWallet";
 
 interface SettingsPageProps {
   publicKey: string | null;
@@ -242,7 +241,7 @@ export default function SettingsPage({
     // Disconnect wallet to force reconnect on new network
     if (publicKey) {
       disconnectWallet();
-      disconnectCurrentWallet();
+      onDisconnect();
     }
 
     setShowMainnetWarning(false);
@@ -259,7 +258,7 @@ export default function SettingsPage({
       // Disconnect wallet on URL change
       if (publicKey) {
         disconnectWallet();
-        disconnectCurrentWallet();
+        onDisconnect();
       }
     }
   };
