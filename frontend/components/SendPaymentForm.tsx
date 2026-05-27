@@ -342,7 +342,11 @@ export default function SendPaymentForm({
   const isUsernameDestination = /^@?[a-zA-Z0-9]{3,20}$/.test(destination) && !isValidStellarAddress(destination);
   
   const MIN_STROOP = 0.0000001;
-  const isValidAmt = !Number.isNaN(amountNum) && amountNum >= MIN_STROOP && amountNum <= maxSend;
+  const isValidAmt =
+    !Number.isNaN(amountNum) &&
+    amountNum >= MIN_STROOP &&
+    amountNum <= maxSend &&
+    !/[eE]/.test(amount);
   
   const canSubmit = (isValidDest || (isUsernameDestination && !isResolvingUsername && !usernameResolutionError)) && 
     isValidAmt && status === "idle" && destination !== publicKey;
@@ -702,6 +706,9 @@ export default function SendPaymentForm({
               type="number"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "e" || e.key === "E") e.preventDefault();
+              }}
               placeholder="0.0000000"
               className={clsx("input-field", amount && !isValidAmt && "border-red-500/50")}
               disabled={status !== "idle"}
