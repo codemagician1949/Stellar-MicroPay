@@ -135,6 +135,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const [staleBalanceAt, setStaleBalanceAt] = useState<number | null>(null);
   const [xlmPrice, setXlmPrice] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
+  const [addressExpanded, setAddressExpanded] = useState(false);
+  const [balanceFlash, setBalanceFlash] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [refreshCountdown, setRefreshCountdown] = useState(AUTO_REFRESH_SECONDS);
   const [isRefreshingBalance, setIsRefreshingBalance] = useState(false);
@@ -233,7 +235,13 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         getUSDCBalance(publicKey),
         getAccountReserveInfo(publicKey),
       ]);
-      setXlmBalance(bal);
+      setXlmBalance((prev) => {
+        if (prev !== null && prev !== bal) {
+          setBalanceFlash(true);
+          setTimeout(() => setBalanceFlash(false), 800);
+        }
+        return bal;
+      });
       setUsdcBalance(usdc);
       setReserveInfo(reserve);
       setStaleBalanceAt(null);
@@ -821,23 +829,38 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <p className="label mb-1">Wallet Address</p>
-            <span className="font-mono text-sm text-slate-300 break-all select-text cursor-text">
-              {publicKey}
-            </span>
             <button
-              onClick={handleCopyAddress}
-              className="mt-2 text-xs text-stellar-400 hover:text-stellar-300 transition-colors flex items-center gap-1.5 cursor-pointer"
+              onClick={() => setAddressExpanded((x) => !x)}
+              className="font-mono text-sm text-slate-300 select-text cursor-pointer hover:text-white transition-colors text-left break-all"
+              title={addressExpanded ? "Click to collapse" : "Click to show full address"}
             >
-              {copied ? (
-                <>
-                  <CheckIcon className="w-3.5 h-3.5" /> Copied!
-                </>
-              ) : (
-                <>
-                  <CopyIcon className="w-3.5 h-3.5" /> Copy address
-                </>
-              )}
+              {addressExpanded
+                ? publicKey
+                : `${publicKey.slice(0, 6)}…${publicKey.slice(-6)}`}
             </button>
+            <div className="mt-2 flex items-center gap-3">
+              <button
+                onClick={handleCopyAddress}
+                className="text-xs text-stellar-400 hover:text-stellar-300 transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                {copied ? (
+                  <>
+                    <CheckIcon className="w-3.5 h-3.5" /> Copied!
+                  </>
+                ) : (
+                  <>
+                    <CopyIcon className="w-3.5 h-3.5" /> Copy address
+                  </>
+                )}
+              </button>
+              <span className="text-slate-600 text-xs">·</span>
+              <button
+                onClick={() => setAddressExpanded((x) => !x)}
+                className="text-xs text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
+              >
+                {addressExpanded ? "Collapse" : "Show full"}
+              </button>
+            </div>
           </div>
 
           <div className="sm:text-right flex-shrink-0">
@@ -846,7 +869,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
               <div className="h-8 w-36 bg-white/10 rounded-lg animate-pulse" />
             ) : xlmBalance !== null ? (
               <div>
-                <div className="font-display text-3xl font-bold text-white">
+                <div className={`font-display text-3xl font-bold text-white ${balanceFlash ? "balance-flash" : ""}`}>
                   {parseFloat(xlmBalance).toLocaleString("en-US", {
                     maximumFractionDigits: 4,
                   })}
