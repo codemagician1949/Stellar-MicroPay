@@ -80,7 +80,7 @@ export default function Trade() {
     try {
       const transaction = await buildCancelOfferTransaction({
         fromPublicKey: publicKey,
-        offerId: offer.id,
+        offerId: String(offer.id),
         selling: offer.selling,
         buying: offer.buying,
       });

@@ -79,8 +79,7 @@ export default function CreatorTipsDashboard({
 
   useEffect(() => {
     fetchTips();
-  }, [fetchTips]);
-
+  }, [fetchTips, page]);
 
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);

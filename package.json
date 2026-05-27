@@ -1,10 +1,6 @@
 {
-  "name": "stellar-micropay",
-  "private": true,
   "scripts": {
-    "dev": "concurrently -k -n backend,frontend -c green,blue \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
-    "dev:backend": "npm run dev --prefix backend",
-    "dev:frontend": "npm run dev --prefix frontend"
+    "load-test": "node scripts/load-test.js"
   },
   "dependencies": {
     "clsx": "^2.1.1"
@@ -19,10 +15,7 @@
     "eslint": "^8.0.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
-    "concurrently": "^9.2.1"
-  },
-  "engines": {
-    "node": "20.19.5"
+    "autocannon": "^8.0.0"
   },
   "keywords": [
     "stellar",

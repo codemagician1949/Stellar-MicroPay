@@ -1490,31 +1490,6 @@ export interface Orderbook {
 /**
  * Represents a single trade aggregation (OHLC) point.
  */
-export interface TradeAggregation {
-  timestamp: number;
-  trade_count: number;
-  base_volume: string;
-  counter_volume: string;
-  avg: string;
-  high: string;
-  low: string;
-  open: string;
-  close: string;
-  price: string; // Map to close for display
-}
-
-/**
- * Represents an open offer on the DEX.
- */
-export interface OpenOffer {
-  id: string;
-  seller: string;
-  selling: Asset;
-  buying: Asset;
-  amount: string;
-  price: string;
-}
-
 /**
  * Fetch the current orderbook for an asset pair.
  */

@@ -7,12 +7,29 @@ import { useState, useEffect } from "react";
 import Head from "next/head";
 import Link from "next/link";
 import { getNetworkConfig, setNetworkConfig, NetworkConfig } from "@/lib/stellar";
-import { disconnectWallet } from "@/lib/wallet";
+import { disconnectWallet, signTransactionWithWallet } from "@/lib/wallet";
+import {
+  createTurretsChallenge,
+  deployTurretsFunction,
+  listTurretsFunctions,
+  pauseTurretsFunction,
+  resumeTurretsFunction,
+  TurretsDeployment,
+} from "@/lib/turrets";
 import { shortenAddress } from "@/lib/stellar";
 import { useWallet } from "@/lib/useWallet";
 
-export default function SettingsPage() {
-  const { publicKey, disconnectWallet: disconnectCurrentWallet } = useWallet();
+interface SettingsPageProps {
+  publicKey: string | null;
+  onConnect: () => void;
+  onDisconnect: () => void;
+}
+
+export default function SettingsPage({
+  publicKey,
+  onConnect,
+  onDisconnect,
+}: SettingsPageProps) {
   const [config, setConfig] = useState<NetworkConfig>({
     network: "testnet",
     horizonUrl: "https://horizon-testnet.stellar.org",
@@ -20,6 +37,26 @@ export default function SettingsPage() {
   const [customUrl, setCustomUrl] = useState("");
   const [showMainnetWarning, setShowMainnetWarning] = useState(false);
   const [pendingNetwork, setPendingNetwork] = useState<"testnet" | "mainnet" | "custom" | null>(null);
+
+  const [deployments, setDeployments] = useState<TurretsDeployment[]>([]);
+  const [turretsLoading, setTurretsLoading] = useState(false);
+  const [turretsError, setTurretsError] = useState<string | null>(null);
+  const [turretsSuccess, setTurretsSuccess] = useState<string | null>(null);
+
+  const [dcaForm, setDcaForm] = useState({
+    amountQuote: "10",
+    intervalMinutes: "60",
+    quoteAssetCode: "USDC",
+    quoteAssetIssuer: "",
+  });
+
+  const [stopLossForm, setStopLossForm] = useState({
+    thresholdPrice: "0.10",
+    amountSell: "10",
+    sellAssetCode: "USDC",
+    sellAssetIssuer: "",
+    cooldownMinutes: "30",
+  });
 
   // Username registration state
   const [username, setUsername] = useState("");
@@ -53,6 +90,29 @@ export default function SettingsPage() {
   }, [publicKey]);
 
   useEffect(() => {
+    const loadTurretsDeployments = async () => {
+      if (!publicKey) {
+        setDeployments([]);
+        return;
+      }
+
+      setTurretsLoading(true);
+      setTurretsError(null);
+
+      try {
+        const data = await listTurretsFunctions(publicKey);
+        setDeployments(data);
+      } catch (err) {
+        setTurretsError(err instanceof Error ? err.message : "Failed to load Turrets deployments");
+      } finally {
+        setTurretsLoading(false);
+      }
+    };
+
+    loadTurretsDeployments();
+  }, [publicKey]);
+
+  useEffect(() => {
     const currentConfig = getNetworkConfig();
     setConfig(currentConfig);
     if (currentConfig.network === "custom") {
@@ -68,6 +128,100 @@ export default function SettingsPage() {
     }
 
     applyNetworkChange(network);
+  };
+
+  const refreshTurretsDeployments = async () => {
+    if (!publicKey) return;
+    setTurretsLoading(true);
+    setTurretsError(null);
+
+    try {
+      const data = await listTurretsFunctions(publicKey);
+      setDeployments(data);
+    } catch (err) {
+      setTurretsError(err instanceof Error ? err.message : "Failed to refresh Turrets deployments");
+    } finally {
+      setTurretsLoading(false);
+    }
+  };
+
+  const handleTurretsAction = async (type: "dca" | "stop_loss") => {
+    if (!publicKey) {
+      setTurretsError("Connect your wallet before deploying a Turrets function.");
+      return;
+    }
+
+    setTurretsLoading(true);
+    setTurretsError(null);
+    setTurretsSuccess(null);
+
+    try {
+      const config =
+        type === "dca"
+          ? {
+              amountQuote: Number(dcaForm.amountQuote),
+              intervalMinutes: Number(dcaForm.intervalMinutes),
+              quoteAssetCode: dcaForm.quoteAssetCode.trim().toUpperCase(),
+              quoteAssetIssuer: dcaForm.quoteAssetIssuer.trim(),
+            }
+          : {
+              thresholdPrice: Number(stopLossForm.thresholdPrice),
+              amountSell: Number(stopLossForm.amountSell),
+              sellAssetCode: stopLossForm.sellAssetCode.trim().toUpperCase(),
+              sellAssetIssuer: stopLossForm.sellAssetIssuer.trim(),
+              cooldownMinutes: Number(stopLossForm.cooldownMinutes),
+            };
+
+      const { challengeXDR, deploymentHash } = await createTurretsChallenge({
+        ownerPublicKey: publicKey,
+        type,
+        config,
+      });
+
+      const { signedXDR, error } = await signTransactionWithWallet(challengeXDR);
+      if (error || !signedXDR) {
+        throw new Error(error || "Failed to sign Turrets challenge");
+      }
+
+      const deployment = await deployTurretsFunction({
+        ownerPublicKey: publicKey,
+        type,
+        config,
+        deploymentHash,
+        signedChallengeXDR: signedXDR,
+      });
+
+      setTurretsSuccess(
+        `Turrets ${type === "dca" ? "DCA" : "stop-loss"} function deployed successfully.`
+      );
+      setDeployments((prev) => [deployment, ...prev]);
+    } catch (err) {
+      setTurretsError(err instanceof Error ? err.message : "Failed to deploy Turrets function");
+    } finally {
+      setTurretsLoading(false);
+    }
+  };
+
+  const handleToggleDeployment = async (deployment: TurretsDeployment) => {
+    if (!publicKey) {
+      setTurretsError("Connect your wallet to manage Turrets deployments.");
+      return;
+    }
+
+    setTurretsLoading(true);
+    setTurretsError(null);
+
+    try {
+      const updated =
+        deployment.status === "active"
+          ? await pauseTurretsFunction(deployment.id)
+          : await resumeTurretsFunction(deployment.id);
+      setDeployments((prev) => prev.map((item) => (item.id === deployment.id ? updated : item)));
+    } catch (err) {
+      setTurretsError(err instanceof Error ? err.message : "Failed to update deployment status");
+    } finally {
+      setTurretsLoading(false);
+    }
   };
 
   const applyNetworkChange = (network: "testnet" | "mainnet" | "custom") => {
@@ -249,6 +403,172 @@ export default function SettingsPage() {
                     <span className="font-mono text-slate-900 dark:text-white">
                       {config.horizonUrl}
                     </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                    Turrets / Server-side Signing
+                  </h2>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                    Deploy programmatic txFunctions with Freighter-signed authorization and server-side evaluation.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={refreshTurretsDeployments}
+                  className="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                >
+                  Refresh
+                </button>
+              </div>
+
+              {(turretsError || turretsSuccess) && (
+                <div className="space-y-2 mb-4">
+                  {turretsError && (
+                    <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg text-rose-400 text-sm">
+                      {turretsError}
+                    </div>
+                  )}
+                  {turretsSuccess && (
+                    <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-400 text-sm">
+                      {turretsSuccess}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
+                    <p className="text-sm font-medium text-slate-900 dark:text-white mb-3">DCA into XLM</p>
+                    <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">Quote Amount (USD)</label>
+                    <input
+                      type="number"
+                      value={dcaForm.amountQuote}
+                      onChange={(e) => setDcaForm((prev) => ({ ...prev, amountQuote: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
+                    />
+                    <label className="block text-xs text-slate-500 dark:text-slate-400 mt-3 mb-1">Interval (minutes)</label>
+                    <input
+                      type="number"
+                      value={dcaForm.intervalMinutes}
+                      onChange={(e) => setDcaForm((prev) => ({ ...prev, intervalMinutes: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
+                    />
+                    <label className="block text-xs text-slate-500 dark:text-slate-400 mt-3 mb-1">Quote Asset Code</label>
+                    <input
+                      type="text"
+                      value={dcaForm.quoteAssetCode}
+                      onChange={(e) => setDcaForm((prev) => ({ ...prev, quoteAssetCode: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
+                    />
+                    <label className="block text-xs text-slate-500 dark:text-slate-400 mt-3 mb-1">Quote Asset Issuer</label>
+                    <input
+                      type="text"
+                      value={dcaForm.quoteAssetIssuer}
+                      onChange={(e) => setDcaForm((prev) => ({ ...prev, quoteAssetIssuer: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
+                    />
+                    <button
+                      type="button"
+                      disabled={turretsLoading}
+                      onClick={() => handleTurretsAction("dca")}
+                      className="w-full mt-4 px-4 py-2 rounded-lg bg-stellar-500 text-white font-medium hover:bg-stellar-600 disabled:opacity-60"
+                    >
+                      Deploy DCA Function
+                    </button>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
+                    <p className="text-sm font-medium text-slate-900 dark:text-white mb-3">Stop-loss Monitor</p>
+                    <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">Threshold Price (USD)</label>
+                    <input
+                      type="number"
+                      value={stopLossForm.thresholdPrice}
+                      onChange={(e) => setStopLossForm((prev) => ({ ...prev, thresholdPrice: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
+                    />
+                    <label className="block text-xs text-slate-500 dark:text-slate-400 mt-3 mb-1">Amount to Sell</label>
+                    <input
+                      type="number"
+                      value={stopLossForm.amountSell}
+                      onChange={(e) => setStopLossForm((prev) => ({ ...prev, amountSell: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
+                    />
+                    <label className="block text-xs text-slate-500 dark:text-slate-400 mt-3 mb-1">Sell Asset Code</label>
+                    <input
+                      type="text"
+                      value={stopLossForm.sellAssetCode}
+                      onChange={(e) => setStopLossForm((prev) => ({ ...prev, sellAssetCode: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
+                    />
+                    <label className="block text-xs text-slate-500 dark:text-slate-400 mt-3 mb-1">Sell Asset Issuer</label>
+                    <input
+                      type="text"
+                      value={stopLossForm.sellAssetIssuer}
+                      onChange={(e) => setStopLossForm((prev) => ({ ...prev, sellAssetIssuer: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
+                    />
+                    <label className="block text-xs text-slate-500 dark:text-slate-400 mt-3 mb-1">Cooldown (minutes)</label>
+                    <input
+                      type="number"
+                      value={stopLossForm.cooldownMinutes}
+                      onChange={(e) => setStopLossForm((prev) => ({ ...prev, cooldownMinutes: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
+                    />
+                    <button
+                      type="button"
+                      disabled={turretsLoading}
+                      onClick={() => handleTurretsAction("stop_loss")}
+                      className="w-full mt-4 px-4 py-2 rounded-lg bg-stellar-500 text-white font-medium hover:bg-stellar-600 disabled:opacity-60"
+                    >
+                      Deploy Stop-loss Function
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-sm font-medium text-slate-900 dark:text-white">Deployments</p>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">{deployments.length} active</span>
+                    </div>
+                    {turretsLoading ? (
+                      <p className="text-sm text-slate-500 dark:text-slate-400">Loading deployments...</p>
+                    ) : deployments.length === 0 ? (
+                      <p className="text-sm text-slate-500 dark:text-slate-400">No Turrets functions deployed yet.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {deployments.map((deployment) => (
+                          <div key={deployment.id} className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-cosmos-900">
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <p className="text-sm font-semibold text-slate-900 dark:text-white">{deployment.type === "dca" ? "DCA" : "Stop-loss"}</p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">{deployment.id}</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleDeployment(deployment)}
+                                className="text-xs px-2 py-1 rounded-full border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200"
+                              >
+                                {deployment.status === "active" ? "Pause" : "Resume"}
+                              </button>
+                            </div>
+                            <div className="mt-3 grid gap-2 text-xs text-slate-500 dark:text-slate-400">
+                              <div>Next run: {deployment.nextRunAt || "n/a"}</div>
+                              <div>Last checked: {deployment.lastCheckedAt || "n/a"}</div>
+                              <div>Last executed: {deployment.lastExecutedAt || "n/a"}</div>
+                              {deployment.lastError && <div className="text-rose-400">Error: {deployment.lastError}</div>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
