@@ -8,7 +8,7 @@
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
-const morgan = require("morgan");
+const pinoHttp = require("pino-http");
 const rateLimit = require("express-rate-limit");
 require("dotenv").config();
 const Sentry = require("@sentry/node");
@@ -21,6 +21,7 @@ const healthRoutes = require("./routes/health");
 const federationRoutes = require("./routes/federation");
 const turretsRoutes = require("./routes/turrets");
 const tipsRoutes = require("./routes/tips");
+const webhookRoutes = require("./routes/webhooks");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
@@ -42,7 +43,9 @@ Sentry.init({
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
 app.use(helmet());
-app.use(morgan("dev"));
+// Structured JSON request logging (#269) — replaces morgan('dev'); reuses the
+// shared pino logger so HTTP logs are machine-parseable (Datadog/CloudWatch).
+app.use(pinoHttp({ logger }));
 app.use(express.json({ limit: "10kb" }));
 
 // JSON parsing error handler
@@ -68,7 +71,7 @@ app.use(
         callback(new Error(`CORS: origin ${origin} not allowed`));
       }
     },
-    methods: ["GET", "POST"],
+    methods: ["GET", "POST", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   })
@@ -97,6 +100,7 @@ app.use(limiter);
 app.use("/api/auth",     authRoutes);
 app.use("/api/accounts", accountRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/webhooks", webhookRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/turrets", turretsRoutes);
 app.use("/api/tips", tipsRoutes);

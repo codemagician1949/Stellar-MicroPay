@@ -110,12 +110,39 @@ export function formatDate(dateString: string): string {
  * Copy text to clipboard and return success boolean.
  */
 export async function copyToClipboard(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
+  // Preferred path: the async Clipboard API, only available in secure contexts
+  // (HTTPS or localhost).
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Permission denied or transient failure — fall back to execCommand below.
+    }
   }
+
+  // Fallback for non-secure (HTTP) contexts where navigator.clipboard is
+  // undefined. Returns the real success state so callers don't show a false
+  // "Copied!" confirmation.
+  if (typeof document !== "undefined" && typeof document.execCommand === "function") {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    try {
+      return document.execCommand("copy");
+    } catch {
+      return false;
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  }
+
+  return false;
 }
 
 /**
