@@ -90,12 +90,7 @@ export const EXTENSION_URLS: Record<SupportedBrowser, string> = {
  */
 export async function isFreighterInstalled(): Promise<boolean> {
   try {
-    const result = await isConnected();
-    // isConnected returns { isConnected: boolean } or boolean depending on version
-    if (typeof result === "object" && result !== null && "isConnected" in result) {
-      return (result as { isConnected: boolean }).isConnected;
-    }
-    return Boolean(result);
+    return await isConnected();
   } catch {
     return false;
   }
@@ -106,11 +101,7 @@ export async function isFreighterInstalled(): Promise<boolean> {
  */
 export async function hasSiteAccess(): Promise<boolean> {
   try {
-    const result = await isAllowed();
-    if (typeof result === "object" && result !== null && "isAllowed" in result) {
-      return (result as { isAllowed: boolean }).isAllowed;
-    }
-    return Boolean(result);
+    return await isAllowed();
   } catch {
     return false;
   }
@@ -141,11 +132,7 @@ export async function connectWallet(): Promise<{
     await requestAccess();
 
     // 3. Get the public key
-    const result = await getPublicKey();
-    const publicKey =
-      typeof result === "object" && result !== null && "publicKey" in result
-        ? (result as { publicKey: string }).publicKey
-        : (result as string);
+    const publicKey = await getPublicKey();
 
     if (!publicKey) {
       return { publicKey: null, error: "No public key returned from Freighter." };
@@ -175,11 +162,7 @@ export async function getConnectedPublicKey(): Promise<string | null> {
     const allowed = await hasSiteAccess();
     if (!allowed) return null;
 
-    const result = await getPublicKey();
-    const pk =
-      typeof result === "object" && result !== null && "publicKey" in result
-        ? (result as { publicKey: string }).publicKey
-        : (result as string);
+    const pk = await getPublicKey();
     return pk || null;
   } catch {
     return null;
@@ -225,15 +208,10 @@ export async function signTransactionWithWallet(
     const config = getNetworkConfig();
     const network = config.network === "mainnet" ? "MAINNET" : "TESTNET";
 
-    const result = await signTransaction(transactionXDR, {
+    const signedXDR = await signTransaction(transactionXDR, {
       networkPassphrase: getNetworkPassphrase(),
       network,
     });
-
-    const signedXDR =
-      typeof result === "object" && result !== null && "signedTransaction" in result
-        ? (result as { signedTransaction: string }).signedTransaction
-        : (result as string);
 
     return { signedXDR, error: null };
   } catch (err: unknown) {
