@@ -7,6 +7,62 @@
 
 const VALID_NETWORKS = ["testnet", "mainnet"];
 
+/**
+ * Rules for a well-formed ALLOWED_ORIGINS entry.
+ *
+ * A valid origin is scheme://host[:port] with:
+ *  - scheme: http or https only
+ *  - host: a hostname or IP address (no wildcards, no path, no trailing slash)
+ *  - port: optional, digits only
+ *
+ * Anything else — trailing slash, wildcard (*), path component, bare domain
+ * without a scheme — is flagged as malformed.
+ */
+const VALID_ORIGIN_RE = /^https?:\/\/[^/*\s]+(:\d+)?$/;
+
+/**
+ * Parse and validate the ALLOWED_ORIGINS env var.
+ *
+ * Returns an object with:
+ *  - origins:  string[] of trimmed, valid origin values (safe to use at runtime)
+ *  - warnings: string[] of human-readable messages for every malformed entry
+ *
+ * @param {string|undefined} raw  Raw value of process.env.ALLOWED_ORIGINS
+ * @returns {{ origins: string[], warnings: string[] }}
+ */
+function parseAllowedOrigins(raw) {
+  const fallback = "http://localhost:3000";
+  const origins = [];
+  const warnings = [];
+
+  if (!raw || !raw.trim()) {
+    return { origins: [fallback], warnings: [] };
+  }
+
+  for (const entry of raw.split(",")) {
+    const trimmed = entry.trim();
+
+    if (!trimmed) {
+      // skip empty segments from e.g. "http://a.com,,http://b.com"
+      continue;
+    }
+
+    if (!VALID_ORIGIN_RE.test(trimmed)) {
+      warnings.push(
+        `ALLOWED_ORIGINS entry "${trimmed}" is malformed — ` +
+          `expected scheme://host[:port] with no trailing slash, path, or wildcard`
+      );
+      // Still include it so startup warnings don't silently change CORS
+      // behaviour; a human needs to decide whether to fix or remove it.
+      origins.push(trimmed);
+    } else {
+      origins.push(trimmed);
+    }
+  }
+
+  return { origins, warnings };
+}
+
 function collectErrors(env) {
   const errors = [];
 
@@ -14,22 +70,27 @@ function collectErrors(env) {
   if (!stellarNetwork) {
     errors.push('STELLAR_NETWORK is required (e.g. "testnet" or "mainnet")');
   } else if (!VALID_NETWORKS.includes(stellarNetwork)) {
-    errors.push(
-      `STELLAR_NETWORK must be "testnet" or "mainnet", got "${stellarNetwork}"`
-    );
+    errors.push(`STELLAR_NETWORK must be "testnet" or "mainnet", got "${stellarNetwork}"`);
   }
 
   const horizonUrl = env.HORIZON_URL?.trim();
   if (!horizonUrl) {
-    errors.push(
-      'HORIZON_URL is required (e.g. "https://horizon-testnet.stellar.org")'
-    );
+    errors.push('HORIZON_URL is required (e.g. "https://horizon-testnet.stellar.org")');
   } else {
     try {
       new URL(horizonUrl);
     } catch {
       errors.push(`HORIZON_URL must be a valid URL, got "${horizonUrl}"`);
     }
+  }
+
+  // ALLOWED_ORIGINS is optional (defaults to localhost:3000) but every entry
+  // that is present must be a well-formed origin.
+  const { warnings } = parseAllowedOrigins(env.ALLOWED_ORIGINS);
+  for (const w of warnings) {
+    // Malformed origins are surfaced as errors at startup — an operator must
+    // fix the value before the server is trusted to make correct CORS decisions.
+    errors.push(w);
   }
 
   return errors;
@@ -56,4 +117,4 @@ function validateEnv(env = process.env) {
   process.exit(1);
 }
 
-module.exports = { validateEnv, collectErrors };
+module.exports = { validateEnv, collectErrors, parseAllowedOrigins };

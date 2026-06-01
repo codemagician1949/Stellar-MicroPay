@@ -7,6 +7,8 @@
     "dev": "nodemon src/server.js",
     "dev:turrets": "TURRETS_PORT=4100 nodemon src/server.js",
     "start": "node src/server.js",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test": "jest",
     "lint": "eslint src/**/*.js"
   },
@@ -28,6 +30,7 @@
   },
   "devDependencies": {
     "eslint": "^8.57.0",
+    "eslint-config-prettier": "9.1.0",
     "fast-check": "^3.22.0",
     "jest": "^30.3.0",
     "nodemon": "^3.1.2",

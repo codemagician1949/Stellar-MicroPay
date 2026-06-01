@@ -26,7 +26,7 @@ const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
 const logger = require("./utils/logger");
-const { validateEnv } = require("./config/validateEnv");
+const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -66,16 +66,48 @@ function getFederationServerUrl(req) {
   const domain = getFederationDomain(req);
   const protocol =
     process.env.FEDERATION_SERVER_PROTOCOL ||
-    (domain.startsWith("localhost") || domain.startsWith("127.0.0.1")
-      ? "http"
-      : "https");
+    (domain.startsWith("localhost") || domain.startsWith("127.0.0.1") ? "http" : "https");
 
   return `${protocol}://${domain}/federation`;
 }
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
-app.use(helmet());
+/**
+ * Content-Security-Policy directives for this JSON API.
+ *
+ * The backend serves no HTML pages of its own except Swagger UI at /api/docs,
+ * so the policy is intentionally restrictive:
+ *
+ *  defaultSrc  – block everything not listed explicitly.
+ *  scriptSrc   – only same-origin scripts (Swagger UI bundles its own JS).
+ *  styleSrc    – same-origin + unsafe-inline (Swagger UI injects inline styles).
+ *  imgSrc      – same-origin + data URIs (Swagger UI logo).
+ *  connectSrc  – only same-origin fetch/XHR (all API calls go to self).
+ *  fontSrc     – same-origin only.
+ *  objectSrc   – none (no Flash / plugins).
+ *  frameSrc    – none (not embedded in iframes).
+ *  upgradeInsecureRequests – omitted intentionally; handled at the load-balancer
+ *                            level in production.
+ *
+ * Helmet v7+ ships with CSP *disabled* by default, so this must be explicit.
+ */
+const helmetOptions = {
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      frameSrc: ["'none'"],
+    },
+  },
+};
+
+app.use(helmet(helmetOptions));
 // Structured JSON request logging (#269) — replaces morgan('dev'); reuses the
 // shared pino logger so HTTP logs are machine-parseable (Datadog/CloudWatch).
 app.use(pinoHttp({ logger }));
@@ -90,9 +122,10 @@ app.use((err, req, res, next) => {
 });
 
 // CORS
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000")
-  .split(",")
-  .map((o) => o.trim());
+// parseAllowedOrigins validates format at startup (see validateEnv.js) and
+// returns the trimmed list of origins that are safe to use at runtime.
+// Any malformed entries cause process.exit(1) before this line is reached.
+const { origins: allowedOrigins } = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
 
 app.use(
   cors({
@@ -142,7 +175,7 @@ app.use(limiter);
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
-app.use("/api/auth",     authRoutes);
+app.use("/api/auth", authRoutes);
 app.use("/api/accounts", accountRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/webhooks", webhookRoutes);
@@ -153,11 +186,15 @@ app.use("/federation", federationRoutes);
 
 // ─── API Documentation ─────────────────────────────────────────────────────────
 
-app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
-  customSiteTitle: "Stellar MicroPay API Docs",
-  customCss: ".swagger-ui .topbar { display: none }",
-  swaggerOptions: { url: "/api/docs.json" },
-}));
+app.use(
+  "/api/docs",
+  swaggerUi.serve,
+  swaggerUi.setup(swaggerSpec, {
+    customSiteTitle: "Stellar MicroPay API Docs",
+    customCss: ".swagger-ui .topbar { display: none }",
+    swaggerOptions: { url: "/api/docs.json" },
+  })
+);
 
 app.get("/api/docs.json", (req, res) => {
   res.setHeader("Content-Type", "application/json");
