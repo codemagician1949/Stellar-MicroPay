@@ -19,6 +19,58 @@ const server = new Horizon.Server(HORIZON_URL);
 const ACCOUNT_CACHE_TTL_MS = 5_000;
 const ACCOUNT_CACHE_MAX = 256;
 
+// ─── Timeout + retry ──────────────────────────────────────────────────────────
+
+const DEFAULT_TIMEOUT_MS = 10_000;
+const MAX_RETRIES = 3;
+
+function isTransientError(err) {
+  if (!err) return false;
+  const status = err?.response?.status ?? err?.status;
+  if (status === 404) return false; // definitive — don't retry
+  if (status >= 500) return true;
+  const msg = err?.message || "";
+  return (
+    msg.includes("ECONNRESET") ||
+    msg.includes("ETIMEDOUT") ||
+    msg.includes("ENOTFOUND") ||
+    msg.includes("network") ||
+    err.name === "AbortError"
+  );
+}
+
+/**
+ * Run `fn` with a hard timeout and retry up to MAX_RETRIES times on
+ * transient errors, using exponential back-off (100 ms × 2^attempt).
+ */
+async function withTimeoutAndRetry(fn, timeoutMs = DEFAULT_TIMEOUT_MS) {
+  let lastErr;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const result = await Promise.race([
+        fn(controller.signal),
+        new Promise((_, reject) =>
+          controller.signal.addEventListener("abort", () =>
+            reject(Object.assign(new Error("Horizon request timed out"), { name: "AbortError" }))
+          )
+        ),
+      ]);
+      clearTimeout(timer);
+      return result;
+    } catch (err) {
+      clearTimeout(timer);
+      lastErr = err;
+      if (!isTransientError(err) || attempt === MAX_RETRIES) throw err;
+      // Exponential back-off: 100 ms, 200 ms, 400 ms …
+      await new Promise((resolve) => setTimeout(resolve, 100 * 2 ** attempt));
+    }
+  }
+  throw lastErr;
+}
+
 /** @type {Map<string, { value: object, expiresAt: number }>} */
 const accountCache = new Map();
 
@@ -59,7 +111,7 @@ async function getAccount(publicKey) {
   if (cached) return cached;
 
   try {
-    const account = await server.loadAccount(publicKey);
+    const account = await withTimeoutAndRetry(() => server.loadAccount(publicKey));
 
     const balances = account.balances.map((b) => {
       if (b.asset_type === "native") {
@@ -122,7 +174,7 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
     query = query.cursor(cursor);
   }
 
-  const result = await query.call();
+  const result = await withTimeoutAndRetry(() => query.call());
 
   const payments = [];
 
@@ -152,7 +204,7 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
 
     let memo;
     try {
-      const tx = await op.transaction();
+      const tx = await withTimeoutAndRetry(() => op.transaction());
       if (tx.memo_type === "text" && tx.memo) {
         memo = tx.memo;
       }
