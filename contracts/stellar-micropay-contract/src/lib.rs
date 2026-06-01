@@ -354,4 +354,83 @@ mod tests {
         assert_eq!(client.get_tip_total(&recipient), 0);
         assert_eq!(client.get_tip_count(&recipient), 0);
     }
+
+    // ── Helper: deploy a SAC token, mint `amount` to `to`, return token address ──
+    fn create_token(env: &Env, admin: &Address, to: &Address, amount: i128) -> Address {
+        let token_id = env.register_stellar_asset_contract(admin.clone());
+        let sac = token::StellarAssetClient::new(env, &token_id);
+        sac.mint(to, &amount);
+        token_id
+    }
+
+    #[test]
+    fn test_send_tip_stores_record() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let amount: i128 = 500;
+
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, amount);
+        client.send_tip(&token_id, &from, &to, &amount);
+
+        let record = client.get_tip_record(&to, &0);
+        assert_eq!(record.from, from);
+        assert_eq!(record.to, to);
+        assert_eq!(record.amount, amount);
+        assert_eq!(record.ledger, env.ledger().sequence());
+    }
+
+    #[test]
+    fn test_send_tip_increments_totals() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let first_amount: i128 = 300;
+        let second_amount: i128 = 700;
+
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, first_amount + second_amount);
+        client.send_tip(&token_id, &from, &to, &first_amount);
+        client.send_tip(&token_id, &from, &to, &second_amount);
+
+        assert_eq!(client.get_tip_total(&to), first_amount + second_amount);
+        assert_eq!(client.get_tip_count(&to), 2);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_send_tip_unauthorized() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let amount: i128 = 100;
+
+        // Mint tokens to `from` but do NOT call env.mock_all_auths(),
+        // so from.require_auth() inside send_tip will fail.
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, amount);
+        // Clear mocked auths so the send_tip call is not authorized.
+        env.set_auths(&[]);
+
+        client.send_tip(&token_id, &from, &to, &amount);
+    }
 }
