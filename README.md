@@ -4,6 +4,31 @@
 
 This project implements a Soroban smart contract for streaming payment channels on the Stellar network. The contract allows a payer to deposit XLM and stream it to a recipient at a defined rate (e.g., 1 XLM per hour). The recipient can claim the streamed amount at any time.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    user[User browser] --> frontend[Next.js frontend]
+    frontend --> wallet[Freighter wallet]
+    wallet --> frontend
+    frontend --> backend[Express backend API]
+    backend --> horizon[Stellar Horizon]
+    frontend --> horizon
+    frontend --> soroban[Soroban RPC]
+    soroban --> contract[MicroPayContract]
+    contract --> stellar[Stellar testnet/mainnet]
+    horizon --> stellar
+
+    backend -. tips, usernames, analytics, webhooks .-> frontend
+    wallet -. signs XDR .-> stellar
+```
+
+- **Frontend** builds payment, tip, receipt, trustline, trade, and account-management flows, then asks Freighter to sign Stellar transaction XDR.
+- **Freighter** owns user keys and returns signed XDR; private keys never pass through the app.
+- **Backend API** handles account, payment-history, federation, SEP-0010 auth, creator-tip, analytics, Turrets, and webhook endpoints.
+- **Horizon** serves account balances, payment history, fee stats, transaction submission, and network data.
+- **Soroban RPC and `MicroPayContract`** record on-chain tips and receipt metadata through contract invocations.
+
 ## Features
 
 - **Stream Creation**: Open payment streams with custom rates and deposits
@@ -140,6 +165,22 @@ The contract includes comprehensive tests covering:
 3. Build the contract: `cargo build --release --target wasm32-unknown-unknown`
 4. Deploy to Stellar testnet/mainnet
 5. Initialize contract with required parameters
+
+## Freighter Setup
+
+New contributors need a funded Stellar testnet account before they can sign and test app flows locally.
+
+1. Install the Freighter browser extension from `https://freighter.app/`.
+2. Open Freighter and create a new wallet, or import an existing development wallet.
+3. Save the recovery phrase somewhere secure. Do not use a production wallet for local testing.
+4. In Freighter, switch the network to **Testnet**.
+5. Copy the public key for the active testnet account.
+6. Fund the account with Friendbot:
+   - In the app, connect Freighter and use the Friendbot funding action shown for unfunded testnet accounts.
+   - Or open `https://friendbot.stellar.org/?addr=<PUBLIC_KEY>` after replacing `<PUBLIC_KEY>` with your copied testnet public key.
+   - Or run `stellar keys fund <identity-name> --network testnet` if you are using Stellar CLI identities.
+7. Confirm funding by refreshing the dashboard or checking the account on Stellar Laboratory testnet explorer.
+8. Use that funded account for local payments, contract invocations, and end-to-end tests that require wallet signing.
 
 ## Acceptance Criteria Met
 
