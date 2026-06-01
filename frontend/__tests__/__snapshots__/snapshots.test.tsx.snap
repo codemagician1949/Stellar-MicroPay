@@ -208,7 +208,7 @@ exports[`Home page snapshot renders landing page 1`] = `
             s
           </div>
           <div
-            class="text-slate-500 text-sm"
+            class="text-slate-400 text-sm"
           >
             Settlement time
           </div>
@@ -223,7 +223,7 @@ exports[`Home page snapshot renders landing page 1`] = `
             0.00001
           </div>
           <div
-            class="text-slate-500 text-sm"
+            class="text-slate-400 text-sm"
           >
             Average fee
           </div>
@@ -238,7 +238,7 @@ exports[`Home page snapshot renders landing page 1`] = `
             +
           </div>
           <div
-            class="text-slate-500 text-sm"
+            class="text-slate-400 text-sm"
           >
             Countries supported
           </div>
@@ -742,7 +742,7 @@ exports[`SendPaymentForm snapshot renders idle state 1`] = `
         </div>
         <input
           class="input-field font-mono text-sm"
-          placeholder="G... or @username"
+          placeholder="G..., alice*domain.com, or @username"
           type="text"
           value=""
         />
@@ -1075,7 +1075,7 @@ exports[`Transactions page snapshot renders unauthenticated state 1`] = `
         </button>
       </div>
       <div
-        class="space-y-3 text-xs text-slate-500"
+        class="space-y-3 text-xs text-slate-400"
       >
         <div>
           Don't have Freighter?
@@ -1099,7 +1099,7 @@ exports[`Transactions page snapshot renders unauthenticated state 1`] = `
         </div>
       </div>
       <div
-        class="mt-6 pt-4 border-t border-white/5 flex items-center justify-center gap-2 text-xs text-slate-500"
+        class="mt-6 pt-4 border-t border-white/5 flex items-center justify-center gap-2 text-xs text-slate-400"
       >
         <span
           class="w-1.5 h-1.5 rounded-full bg-amber-400"
@@ -1219,7 +1219,7 @@ exports[`WalletConnect snapshot renders wallet selection screen 1`] = `
       </button>
     </div>
     <div
-      class="space-y-3 text-xs text-slate-500"
+      class="space-y-3 text-xs text-slate-400"
     >
       <div>
         Don't have Freighter?
@@ -1243,7 +1243,7 @@ exports[`WalletConnect snapshot renders wallet selection screen 1`] = `
       </div>
     </div>
     <div
-      class="mt-6 pt-4 border-t border-white/5 flex items-center justify-center gap-2 text-xs text-slate-500"
+      class="mt-6 pt-4 border-t border-white/5 flex items-center justify-center gap-2 text-xs text-slate-400"
     >
       <span
         class="w-1.5 h-1.5 rounded-full bg-amber-400"

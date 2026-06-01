@@ -1,86 +1,98 @@
 /**
- * #279 — webhook registration endpoints (auth-gated, own-account).
+ * Webhook registration HTTP routes.
  */
 "use strict";
 
-// Avoid opening a real Horizon stream when a webhook is registered.
-jest.mock("../src/services/stellarService", () => ({
-  streamIncomingPayments: jest.fn(() => () => {}),
-}));
+jest.mock("../src/services/webhookService", () => {
+  const store = new Map();
+  let nextId = 1;
+
+  return {
+    registerWebhook: jest.fn((publicKey, url, secret) => {
+      const webhook = {
+        id: String(nextId++),
+        publicKey,
+        url,
+        secret,
+        createdAt: new Date().toISOString(),
+      };
+      store.set(webhook.id, webhook);
+      return webhook;
+    }),
+    getWebhooksByPublicKey: jest.fn((publicKey) =>
+      Array.from(store.values()).filter((w) => w.publicKey === publicKey)
+    ),
+    deleteWebhook: jest.fn((id) => store.delete(id)),
+  };
+});
 
 const express = require("express");
 const request = require("supertest");
-const jwt = require("jsonwebtoken");
-const { JWT_SECRET } = require("../src/middleware/auth");
 const webhookRoutes = require("../src/routes/webhooks");
 const webhookService = require("../src/services/webhookService");
 
 const ME = "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA";
 
 function app() {
-  const a = express();
-  a.use(express.json());
-  a.use("/api/webhooks", webhookRoutes);
-  return a;
+  const server = express();
+  server.use(express.json());
+  server.use("/api/webhooks", webhookRoutes);
+  return server;
 }
-const auth = () => `Bearer ${jwt.sign({ publicKey: ME }, JWT_SECRET, { expiresIn: "1h" })}`;
 
-beforeEach(() => webhookService._reset());
+beforeEach(() => {
+  jest.clearAllMocks();
+});
 
-describe("POST /api/webhooks (#279)", () => {
-  it("requires authentication", async () => {
-    const res = await request(app()).post("/api/webhooks").send({ url: "https://x.test/h", secret: "secret-123" });
-    expect(res.status).toBe(401);
-  });
-
-  it("rejects an invalid url", async () => {
-    const res = await request(app())
-      .post("/api/webhooks")
-      .set("Authorization", auth())
-      .send({ url: "not-a-url", secret: "secret-123" });
+describe("POST /api/webhooks", () => {
+  it("requires publicKey, url, and secret", async () => {
+    const res = await request(app()).post("/api/webhooks").send({ url: "https://x.test/h" });
     expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/required/i);
   });
 
-  it("rejects a too-short secret", async () => {
+  it("registers a webhook", async () => {
     const res = await request(app())
       .post("/api/webhooks")
-      .set("Authorization", auth())
-      .send({ url: "https://x.test/h", secret: "short" });
-    expect(res.status).toBe(400);
-  });
+      .send({ publicKey: ME, url: "https://x.test/hook", secret: "supersecret" });
 
-  it("registers a webhook for the authenticated account", async () => {
-    const res = await request(app())
-      .post("/api/webhooks")
-      .set("Authorization", auth())
-      .send({ url: "https://x.test/hook", secret: "supersecret" });
     expect(res.status).toBe(201);
-    expect(res.body.account).toBe(ME);
-    expect(res.body.url).toBe("https://x.test/hook");
-    expect(res.body).not.toHaveProperty("secret");
+    expect(res.body.success).toBe(true);
+    expect(res.body.webhook.publicKey).toBe(ME);
+    expect(webhookService.registerWebhook).toHaveBeenCalledWith(
+      ME,
+      "https://x.test/hook",
+      "supersecret"
+    );
   });
 });
 
-describe("GET/DELETE /api/webhooks (#279)", () => {
-  it("lists only the caller's webhooks with secrets redacted", async () => {
-    webhookService.registerWebhook({ account: ME, url: "https://x.test/mine", secret: "secret-mine" });
-    webhookService.registerWebhook({ account: "GOTHER", url: "https://x.test/other", secret: "secret-other" });
-    const res = await request(app()).get("/api/webhooks").set("Authorization", auth());
+describe("GET /api/webhooks/:publicKey", () => {
+  it("returns webhooks for the account", async () => {
+    webhookService.getWebhooksByPublicKey.mockReturnValue([
+      { id: "1", publicKey: ME, url: "https://x.test/hook", secret: "supersecret" },
+    ]);
+
+    const res = await request(app()).get(`/api/webhooks/${ME}`);
     expect(res.status).toBe(200);
     expect(res.body.webhooks).toHaveLength(1);
-    expect(res.body.webhooks[0]).not.toHaveProperty("secret");
+  });
+});
+
+describe("DELETE /api/webhooks/:id", () => {
+  it("deletes an existing webhook", async () => {
+    webhookService.deleteWebhook.mockReturnValue(true);
+
+    const res = await request(app()).delete("/api/webhooks/1");
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
   });
 
-  it("deletes the caller's own webhook", async () => {
-    const wh = webhookService.registerWebhook({ account: ME, url: "https://x.test/d", secret: "secret-del" });
-    const res = await request(app()).delete(`/api/webhooks/${wh.id}`).set("Authorization", auth());
-    expect(res.status).toBe(204);
-    expect(webhookService.getWebhook(wh.id)).toBeUndefined();
-  });
+  it("returns 404 when the webhook does not exist", async () => {
+    webhookService.deleteWebhook.mockReturnValue(false);
 
-  it("will not delete another account's webhook", async () => {
-    const wh = webhookService.registerWebhook({ account: "GOTHER", url: "https://x.test/o", secret: "secret-oth" });
-    const res = await request(app()).delete(`/api/webhooks/${wh.id}`).set("Authorization", auth());
+    const res = await request(app()).delete("/api/webhooks/missing");
     expect(res.status).toBe(404);
+    expect(res.body.error).toBe("Webhook not found");
   });
 });

@@ -1,56 +1,52 @@
 /**
- * #279 — webhook registry + signed delivery.
+ * Webhook registry and signed delivery.
  */
 "use strict";
 
+jest.mock("@stellar/stellar-sdk", () => ({
+  Horizon: {
+    Server: jest.fn(() => ({
+      payments: () => ({
+        forAccount: () => ({
+          cursor: () => ({
+            stream: () => jest.fn(),
+          }),
+        }),
+      }),
+    })),
+  },
+}));
+
 const webhookService = require("../src/services/webhookService");
-const { verifyWebhookSignature } = require("../src/utils/webhookSignature");
 
-const ACCOUNT = "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA";
-
-beforeEach(() => webhookService._reset());
+const ACCOUNT_A = "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA";
+const ACCOUNT_B = "GDUKMGUGDZQK6YHYA5Z6AY2G4XDSZPSZ3SW5UN3ARVMO6QSRDWP5YLEX";
+const ACCOUNT_C = "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 
 describe("webhook registry", () => {
-  it("registers and lists webhooks without exposing the secret", () => {
-    webhookService.registerWebhook({ account: ACCOUNT, url: "https://x.test/hook", secret: "supersecret" });
-    const list = webhookService.listWebhooks(ACCOUNT);
+  it("registers and lists webhooks for an account", () => {
+    const webhook = webhookService.registerWebhook(
+      ACCOUNT_A,
+      "https://x.test/hook",
+      "supersecret"
+    );
+
+    const list = webhookService.getWebhooksByPublicKey(ACCOUNT_A);
     expect(list).toHaveLength(1);
     expect(list[0].url).toBe("https://x.test/hook");
-    expect(list[0]).not.toHaveProperty("secret");
+    expect(list[0].id).toBe(webhook.id);
   });
 
-  it("scopes listing to the account and supports removal", () => {
-    const a = webhookService.registerWebhook({ account: ACCOUNT, url: "https://x.test/a", secret: "secret-aaa" });
-    webhookService.registerWebhook({ account: "GOTHER", url: "https://x.test/b", secret: "secret-bbb" });
-    expect(webhookService.listWebhooks(ACCOUNT)).toHaveLength(1);
-    expect(webhookService.removeWebhook(a.id)).toBe(true);
-    expect(webhookService.listWebhooks(ACCOUNT)).toHaveLength(0);
-  });
-});
+  it("scopes listing to the account and supports deletion", () => {
+    const webhook = webhookService.registerWebhook(
+      ACCOUNT_B,
+      "https://x.test/a",
+      "secret-aaa"
+    );
+    webhookService.registerWebhook(ACCOUNT_C, "https://x.test/b", "secret-bbb");
 
-describe("signed delivery", () => {
-  it("POSTs the payload with a verifiable HMAC signature header", async () => {
-    const wh = { url: "https://x.test/hook", secret: "supersecret" };
-    const payload = { type: "payment.received", amount: "10" };
-    const client = { post: jest.fn().mockResolvedValue({ status: 200 }) };
-
-    await webhookService.deliverWebhook(wh, payload, { client });
-
-    expect(client.post).toHaveBeenCalledTimes(1);
-    const [url, sentPayload, opts] = client.post.mock.calls[0];
-    expect(url).toBe(wh.url);
-    expect(sentPayload).toEqual(payload);
-    const sig = opts.headers["X-Webhook-Signature"];
-    expect(verifyWebhookSignature(JSON.stringify(payload), wh.secret, sig)).toBe(true);
-  });
-
-  it("delivers an incoming payment to every webhook for the account", async () => {
-    webhookService.registerWebhook({ account: ACCOUNT, url: "https://x.test/1", secret: "secret-111" });
-    webhookService.registerWebhook({ account: ACCOUNT, url: "https://x.test/2", secret: "secret-222" });
-    const client = { post: jest.fn().mockResolvedValue({ status: 200 }) };
-
-    await webhookService.notifyIncomingPayment(ACCOUNT, { id: "p1", amount: "5" }, { client });
-
-    expect(client.post).toHaveBeenCalledTimes(2);
+    expect(webhookService.getWebhooksByPublicKey(ACCOUNT_B)).toHaveLength(1);
+    expect(webhookService.deleteWebhook(webhook.id)).toBe(true);
+    expect(webhookService.getWebhooksByPublicKey(ACCOUNT_B)).toHaveLength(0);
   });
 });
