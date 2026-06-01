@@ -938,14 +938,16 @@ interface SendConfirmationModalProps {
 
 function SendConfirmationModal({ isOpen, destination, amount, asset, memo, estimatedFee, onCancel, onConfirm }: SendConfirmationModalProps) {
   if (!isOpen) return null;
+  const shortened = shortenAddress(destination, 8);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-labelledby="confirm-payment-title">
       <div className="w-full max-w-md rounded-2xl bg-slate-900 p-6 border border-white/10 shadow-2xl">
-        <h3 className="text-xl font-bold text-white mb-4">Confirm Payment</h3>
+        <h3 id="confirm-payment-title" className="text-xl font-bold text-white mb-4">Confirm Payment</h3>
         <div className="space-y-4">
           <div>
             <p className="text-xs text-slate-400 uppercase font-bold">To</p>
-            <p className="text-sm font-mono text-slate-200 break-all">{destination}</p>
+            <p className="text-base font-semibold text-white">{shortened}</p>
+            <p className="text-xs font-mono text-slate-400 break-all mt-0.5">{destination}</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -953,7 +955,7 @@ function SendConfirmationModal({ isOpen, destination, amount, asset, memo, estim
               <p className="text-lg font-bold text-white">{amount} {asset}</p>
             </div>
             <div>
-              <p className="text-xs text-slate-400 uppercase font-bold">Fee</p>
+              <p className="text-xs text-slate-400 uppercase font-bold">Estimated Fee</p>
               <p className="text-sm text-slate-300">{estimatedFee}</p>
             </div>
           </div>
@@ -966,7 +968,7 @@ function SendConfirmationModal({ isOpen, destination, amount, asset, memo, estim
         </div>
         <div className="mt-8 flex gap-3">
           <button onClick={onCancel} className="flex-1 rounded-xl border border-white/10 py-3 text-sm font-semibold text-white hover:bg-white/5 transition-all">Cancel</button>
-          <button onClick={onConfirm} className="flex-1 btn-primary py-3">Confirm & Send</button>
+          <button onClick={onConfirm} className="flex-1 btn-primary py-3">Confirm & Sign</button>
         </div>
       </div>
     </div>
