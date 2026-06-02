@@ -774,14 +774,23 @@ exports[`SendPaymentForm snapshot renders idle state 1`] = `
         />
       </div>
       <div>
-        <label
-          class="label"
+        <div
+          class="mb-2 flex items-center justify-between"
         >
-          Memo (optional)
-        </label>
+          <label
+            class="label mb-0"
+          >
+            Memo (optional)
+          </label>
+          <span
+            class="text-xs transition-colors text-slate-400"
+          >
+            0
+            /28 bytes
+          </span>
+        </div>
         <input
           class="input-field"
-          maxlength="28"
           placeholder="Payment note..."
           type="text"
           value=""

@@ -137,13 +137,16 @@ export default function TransactionList({
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [nextCursor, setNextCursor] = useState<string | undefined>();
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [stalePaymentsAt, setStalePaymentsAt] = useState<number | null>(null);
   const router = useRouter();
 
+  const lastPagingTokenRef = useRef<string | undefined>(undefined);
+  const [infiniteScroll, setInfiniteScroll] = useState(false);
+
   // Sentinel ref for IntersectionObserver — defer initial fetch until visible
   const containerRef = useRef<HTMLDivElement>(null);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
@@ -180,15 +183,16 @@ export default function TransactionList({
       } else {
         setLoading(true);
         updatePayments([]);
-        setNextCursor(undefined);
+        lastPagingTokenRef.current = undefined;
         setHasMore(true);
       }
       setError(null);
       try {
+        const cursorToUse = isLoadMore ? lastPagingTokenRef.current : undefined;
         const data: PaymentHistoryResponse = await getPaymentHistory(
           publicKey,
           limit,
-          isLoadMore ? nextCursor : undefined
+          cursorToUse
         );
 
         if (isLoadMore) {
@@ -212,7 +216,8 @@ export default function TransactionList({
         }
 
         setHasMore(data.hasMore);
-        setNextCursor(data.nextCursor);
+        const nextToken = data.records[data.records.length - 1]?.pagingToken;
+        lastPagingTokenRef.current = nextToken;
         setStalePaymentsAt(null);
       } catch (err) {
         const cached = !isLoadMore
@@ -221,7 +226,7 @@ export default function TransactionList({
         if (cached) {
           updatePayments(cached.records);
           setHasMore(cached.hasMore);
-          setNextCursor(cached.nextCursor);
+          lastPagingTokenRef.current = cached.records[cached.records.length - 1]?.pagingToken;
           setStalePaymentsAt(cached.savedAt);
           setError(null);
           return;
@@ -234,8 +239,27 @@ export default function TransactionList({
         setLoadingMore(false);
       }
     },
-    [publicKey, limit, nextCursor, updatePayments, onPaymentsChange]
+    [publicKey, limit, updatePayments, onPaymentsChange]
   );
+
+  // IntersectionObserver effect for Infinite Scroll
+  useEffect(() => {
+    if (!infiniteScroll || !hasMore || loadingMore || loading) return;
+
+    const el = loadMoreRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          fetchPayments(true);
+        }
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [infiniteScroll, hasMore, loadingMore, loading, fetchPayments]);
 
   useEffect(() => {
     if (!isVisible) return;
@@ -352,13 +376,38 @@ export default function TransactionList({
                 <HistoryIcon className="w-5 h-5 text-stellar-400" />
                 Recent Payments
               </h2>
-              <button
-                onClick={() => fetchPayments()}
-                className="text-xs text-slate-400 hover:text-stellar-400 transition-colors flex items-center gap-1"
-              >
-                <RefreshIcon className="w-3.5 h-3.5" />
-                Refresh
-              </button>
+              <div className="flex items-center gap-4">
+                {/* Premium Infinite Scroll Toggle */}
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-400 select-none">
+                  <span className={clsx("transition-colors", infiniteScroll ? "text-stellar-400 font-medium" : "")}>
+                    Infinite Scroll
+                  </span>
+                  <div className="relative">
+                    <input
+                      type="checkbox"
+                      className="sr-only"
+                      checked={infiniteScroll}
+                      onChange={(e) => setInfiniteScroll(e.target.checked)}
+                      aria-label="Toggle infinite scroll"
+                    />
+                    <div className={clsx(
+                      "w-8 h-4 rounded-full transition-colors duration-200 ease-in-out",
+                      infiniteScroll ? "bg-stellar-500/30 border border-stellar-400/40" : "bg-white/10 border border-white/5"
+                    )} />
+                    <div className={clsx(
+                      "absolute left-0.5 top-0.5 w-3 h-3 rounded-full bg-white transition-transform duration-200 ease-in-out shadow-sm",
+                      infiniteScroll ? "transform translate-x-4 bg-stellar-300" : "bg-slate-400"
+                    )} />
+                  </div>
+                </label>
+                <button
+                  onClick={() => fetchPayments()}
+                  className="text-xs text-slate-400 hover:text-stellar-400 transition-colors flex items-center gap-1"
+                >
+                  <RefreshIcon className="w-3.5 h-3.5" />
+                  Refresh
+                </button>
+              </div>
             </div>
           )}
 
@@ -495,8 +544,20 @@ export default function TransactionList({
           </div>
         ))}
 
-        {/* Load more */}
-        {hasMore && payments.length > 0 && (
+        {/* Infinite Scroll Sentinel / Loading Indicator */}
+        {infiniteScroll && (
+          <div ref={loadMoreRef} className="flex justify-center mt-4 py-2">
+            {loadingMore && (
+              <div className="flex items-center gap-2 text-slate-400">
+                <div className="w-4 h-4 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm">Loading more...</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Load more button (only when NOT using infinite scroll) */}
+        {!infiniteScroll && hasMore && payments.length > 0 && (
           <div className="flex justify-center mt-4">
             <button
               onClick={handleLoadMore}

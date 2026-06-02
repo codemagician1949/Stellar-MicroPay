@@ -617,6 +617,10 @@ export async function buildChangeTrustTransaction({
 
 /**
  * Build an unsigned XLM payment transaction ready for Freighter to sign.
+ *
+ * The base fee is fetched from Horizon `/fee_stats` and set to the p50
+ * percentile so the transaction doesn't get stuck during network congestion.
+ * Falls back to {@link STELLAR_BASE_FEE_STROOPS_STRING} when offline.
  */
 export async function buildPaymentTransaction({
   fromPublicKey,
@@ -631,6 +635,29 @@ export async function buildPaymentTransaction({
   memo?: string;
   asset?: "XLM" | "USDC";
 }): Promise<Transaction> {
+  // ── Fetch dynamic fee from Horizon fee_stats ──────────────────────────────
+  let baseFeeStroops: string = STELLAR_BASE_FEE_STROOPS_STRING;
+  try {
+    const config = getNetworkConfig();
+    const feeRes = await fetch(`${config.horizonUrl}/fee_stats`);
+    if (feeRes.ok) {
+      const feeData = await feeRes.json() as {
+        fee_charged?: { p50?: string };
+        max_fee?: { p50?: string };
+      };
+      const p50 =
+        feeData?.fee_charged?.p50 ??
+        feeData?.max_fee?.p50 ??
+        STELLAR_BASE_FEE_STROOPS_STRING;
+      const p50Num = parseInt(p50, 10);
+      if (Number.isFinite(p50Num) && p50Num > 0) {
+        baseFeeStroops = String(p50Num);
+      }
+    }
+  } catch {
+    // Network unavailable — fall back to protocol minimum
+  }
+
   const sourceAccount = await server.loadAccount(fromPublicKey);
 
   // For XLM, verify the destination account exists; if not, use create_account
@@ -652,7 +679,7 @@ export async function buildPaymentTransaction({
       }
       // Use create_account operation to fund and activate the new account
       const builder = new TransactionBuilder(sourceAccount, {
-        fee: STELLAR_BASE_FEE_STROOPS_STRING,
+        fee: baseFeeStroops,
         networkPassphrase: NETWORK_PASSPHRASE,
       })
         .addOperation(
@@ -691,7 +718,7 @@ export async function buildPaymentTransaction({
   }
 
   const builder = new TransactionBuilder(sourceAccount, {
-    fee: STELLAR_BASE_FEE_STROOPS_STRING,
+    fee: baseFeeStroops,
     networkPassphrase: NETWORK_PASSPHRASE,
   })
     .addOperation(

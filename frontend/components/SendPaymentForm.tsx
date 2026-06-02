@@ -421,13 +421,17 @@ export default function SendPaymentForm({
     amountNum <= maxSend &&
     !/[eE]/.test(amount);
   
+  const memoBytes = new TextEncoder().encode(memo).length;
+  const isMemoValid = memoBytes <= 28;
+  
   const canSubmit =
     (isValidDest || isFederationDestination || isUsernameDestination) &&
     !isResolvingDestination &&
     !destinationResolutionError &&
     isValidAmt &&
     status === "idle" &&
-    trimmedDestination !== publicKey;
+    trimmedDestination !== publicKey &&
+    isMemoValid;
 
   const resolveUsername = async (username: string): Promise<string> => {
     const cleanUsername = username.replace(/^@/, "").toLowerCase();
@@ -861,16 +865,23 @@ export default function SendPaymentForm({
 
         {!hideMemoField && (
           <div>
-            <label className="label">Memo (optional)</label>
+            <div className="mb-2 flex items-center justify-between">
+              <label className="label mb-0">Memo (optional)</label>
+              <span className={clsx("text-xs transition-colors", memoBytes > 28 ? "text-red-400 font-bold" : "text-slate-400")}>
+                {memoBytes}/28 bytes
+              </span>
+            </div>
             <input
               type="text"
               value={memo}
-              onChange={(e) => handleMemoChange(truncateMemoText(e.target.value))}
+              onChange={(e) => handleMemoChange(e.target.value)}
               placeholder="Payment note..."
-              className="input-field"
+              className={clsx("input-field", memoBytes > 28 && "border-red-500/50")}
               disabled={status !== "idle"}
-              maxLength={STELLAR_MEMO_TEXT_MAX_BYTES}
             />
+            {memoBytes > 28 && (
+              <p className="mt-1 text-xs text-red-400">Memo exceeds Stellar's 28-byte limit.</p>
+            )}
           </div>
         )}
 
