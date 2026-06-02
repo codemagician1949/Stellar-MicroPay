@@ -5,8 +5,9 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     (window as any).freighter = {
       isConnected: async () => ({ isConnected: false }),
+      getAddress: async () => ({ address: '' }),
       getPublicKey: async () => ({ publicKey: '' }),
-      signTransaction: async () => ({ signedTransaction: '' }),
+      signTransaction: async () => ({ signedTxXdr: '' }),
       requestAccess: async () => ({}),
       isAllowed: async () => ({ isAllowed: false }),
     };
@@ -15,7 +16,7 @@ test.beforeEach(async ({ page }) => {
 
 test('landing page loads with correct title', async ({ page }) => {
   await page.goto('/');
-  await expect(page).toHaveTitle('Stellar-MicroPay | Instant Micropayments');
+  await expect(page).toHaveTitle('Home | Stellar-MicroPay');
 });
 
 test('landing page shows hero heading', async ({ page }) => {
@@ -27,13 +28,13 @@ test('landing page shows hero heading', async ({ page }) => {
 
 test('Connect Wallet & Start button is visible on landing page', async ({ page }) => {
   await page.goto('/');
-  const btn = page.getByRole('button', { name: 'Connect Wallet & Start' });
+  const btn = page.getByRole('button', { name: 'Connect wallet to start sending payments' });
   await expect(btn).toBeVisible();
 });
 
 test('clicking Connect Wallet & Start opens the WalletConnect modal', async ({ page }) => {
   await page.goto('/');
-  const btn = page.getByRole('button', { name: 'Connect Wallet & Start' });
+  const btn = page.getByRole('button', { name: 'Connect wallet to start sending payments' });
   await btn.click();
 
   const walletHeading = page.getByRole('heading', { name: 'Connect your wallet' });
@@ -42,7 +43,7 @@ test('clicking Connect Wallet & Start opens the WalletConnect modal', async ({ p
 
 test('Cancel button closes the WalletConnect modal', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Connect Wallet & Start' }).click();
+  await page.getByRole('button', { name: 'Connect wallet to start sending payments' }).click();
   await expect(page.getByRole('heading', { name: 'Connect your wallet' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Cancel' }).click();

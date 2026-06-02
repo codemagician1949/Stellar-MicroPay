@@ -1,7 +1,9 @@
 import { withSentryConfig } from "@sentry/nextjs";
 import { validateEnv } from "./scripts/validateEnv.mjs";
 
-validateEnv();
+if (process.env.npm_lifecycle_event !== "lint") {
+  validateEnv();
+}
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
