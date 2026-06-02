@@ -62,7 +62,7 @@ interface SendPaymentFormProps {
     destination: string;
     amount: string;
     memo?: string;
-    validUntil?: number;
+    validUntil?: number | null;
     fromHistory?: boolean;
   } | null;
   aiPrefill?: {
