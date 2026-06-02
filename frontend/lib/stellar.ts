@@ -584,7 +584,7 @@ export async function buildPaymentTransaction({
   toPublicKey: string;
   amount: string;
   memo?: string;
-  asset?: "XLM" | "USDC";
+  asset?: "XLM" | "USDC" | { code: string; issuer: string };
 }): Promise<Transaction> {
   // ── Fetch dynamic fee from Horizon fee_stats ──────────────────────────────
   let baseFeeStroops: string = STELLAR_BASE_FEE_STROOPS_STRING;
@@ -649,23 +649,36 @@ export async function buildPaymentTransaction({
     }
   }
 
-  // For USDC, verify the recipient has a trustline before building the tx
-  if (asset === "USDC") {
+  // For non-native assets, verify the recipient has the required trustline
+  const isCustomAsset = typeof asset === "object";
+  const isUSDC = asset === "USDC";
+  if (isUSDC || isCustomAsset) {
     const recipient = await server.loadAccount(toPublicKey).catch(() => null);
     if (!recipient) {
       throw new Error("Recipient account not found on the Stellar network.");
     }
+    const targetCode = isUSDC ? "USDC" : (asset as { code: string; issuer: string }).code;
+    const targetIssuer = isUSDC ? USDC_ISSUER : (asset as { code: string; issuer: string }).issuer;
     const hasTrustline = recipient.balances.some(
       (b): b is Horizon.HorizonApi.BalanceLineAsset =>
         b.asset_type !== "native" &&
-        (b as Horizon.HorizonApi.BalanceLineAsset).asset_code === "USDC" &&
-        (b as Horizon.HorizonApi.BalanceLineAsset).asset_issuer === USDC_ISSUER
+        (b as Horizon.HorizonApi.BalanceLineAsset).asset_code === targetCode &&
+        (b as Horizon.HorizonApi.BalanceLineAsset).asset_issuer === targetIssuer
     );
     if (!hasTrustline) {
       throw new Error(
-        "Recipient has no USDC trustline. They must add USDC to their Stellar wallet first."
+        `Recipient has no ${targetCode} trustline. They must add ${targetCode} to their Stellar wallet first.`
       );
     }
+  }
+
+  let stellarAsset: Asset;
+  if (asset === "XLM") {
+    stellarAsset = Asset.native();
+  } else if (asset === "USDC") {
+    stellarAsset = USDC;
+  } else {
+    stellarAsset = new Asset(asset.code, asset.issuer);
   }
 
   const builder = new TransactionBuilder(sourceAccount, {
@@ -675,7 +688,7 @@ export async function buildPaymentTransaction({
     .addOperation(
       Operation.payment({
         destination: toPublicKey,
-        asset: asset === "USDC" ? USDC : Asset.native(),
+        asset: stellarAsset,
         amount: amount,
       })
     )

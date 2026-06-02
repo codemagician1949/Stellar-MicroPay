@@ -8,6 +8,8 @@ import { useState, useEffect, createContext, useContext } from "react";
 import Head from "next/head";
 import Navbar from "@/components/Navbar";
 import QuickSendModal from "@/components/QuickSendModal";
+import { ToastContainer } from "@/components/Toast";
+import { ToastProvider } from "@/lib/ToastContext";
 import { WalletProvider, useWallet } from "@/lib/useWallet";
 import {
   getStellarURIFromURL,
@@ -200,6 +202,7 @@ export default function App({ Component, pageProps }: AppProps) {
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>
+      <ToastProvider>
       <WalletProvider>
         <Head>
           <title>Stellar-MicroPay | Instant Micropayments</title>
@@ -246,7 +249,9 @@ export default function App({ Component, pageProps }: AppProps) {
           isQuickSendOpen={isQuickSendOpen}
           setIsQuickSendOpen={setIsQuickSendOpen}
         />
+        <ToastContainer />
       </WalletProvider>
+      </ToastProvider>
     </ThemeContext.Provider>
   );
 }
