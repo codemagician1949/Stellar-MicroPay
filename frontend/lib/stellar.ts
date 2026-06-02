@@ -1829,3 +1829,126 @@ export function isStellarName(value: string): boolean {
   const v = value.trim()
   return v.endsWith('.xlm') || v.includes('*')
 }
+
+// ─── Escrow (issue #213) ──────────────────────────────────────────────────────
+//
+// Thin wrappers around the contract's create_escrow / claim_escrow /
+// cancel_escrow / get_escrow entrypoints. All take a connected wallet's
+// public key as the auth source and return a built+preflighted Transaction
+// ready to hand to signTransactionWithWallet().
+
+export interface EscrowRecord {
+  id: number;
+  from: string;
+  to: string;
+  token: string;
+  amount: string; // stroops as string
+  releaseLedger: number;
+  status: "Pending" | "Released" | "Cancelled";
+}
+
+export async function buildCreateEscrowTransaction({
+  fromPublicKey,
+  toPublicKey,
+  amount,
+  releaseLedger,
+}: {
+  fromPublicKey: string;
+  toPublicKey: string;
+  amount: string;
+  releaseLedger: number;
+}): Promise<Transaction> {
+  if (!CONTRACT_ID) throw new Error("Contract ID is not configured.");
+  const sourceAccount = await server.loadAccount(fromPublicKey);
+  const contract = new Contract(CONTRACT_ID);
+  const xlmContractId = Asset.native().contractId(NETWORK_PASSPHRASE);
+  const stroops = BigInt(Math.round(parseFloat(amount) * STELLAR_STROOPS_PER_XLM));
+
+  const tx = new TransactionBuilder(sourceAccount, {
+    fee: STELLAR_BASE_FEE_STROOPS_STRING,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      contract.call(
+        "create_escrow",
+        nativeToScVal(xlmContractId, { type: "address" }),
+        nativeToScVal(fromPublicKey, { type: "address" }),
+        nativeToScVal(toPublicKey, { type: "address" }),
+        nativeToScVal(stroops, { type: "i128" }),
+        nativeToScVal(releaseLedger, { type: "u32" }),
+      ),
+    )
+    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
+    .build();
+
+  const simulated = await sorobanServer.simulateTransaction(tx);
+  if (rpc.Api.isSimulationError(simulated)) {
+    throw new Error(`Simulation failed: ${simulated.error}`);
+  }
+  return sorobanServer.prepareTransaction(tx);
+}
+
+async function buildEscrowMutation(
+  fromPublicKey: string,
+  method: "claim_escrow" | "cancel_escrow",
+  id: number,
+): Promise<Transaction> {
+  if (!CONTRACT_ID) throw new Error("Contract ID is not configured.");
+  const sourceAccount = await server.loadAccount(fromPublicKey);
+  const contract = new Contract(CONTRACT_ID);
+  const tx = new TransactionBuilder(sourceAccount, {
+    fee: STELLAR_BASE_FEE_STROOPS_STRING,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(contract.call(method, nativeToScVal(id, { type: "u32" })))
+    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
+    .build();
+  const simulated = await sorobanServer.simulateTransaction(tx);
+  if (rpc.Api.isSimulationError(simulated)) {
+    throw new Error(`Simulation failed: ${simulated.error}`);
+  }
+  return sorobanServer.prepareTransaction(tx);
+}
+
+export function buildClaimEscrowTransaction(fromPublicKey: string, id: number) {
+  return buildEscrowMutation(fromPublicKey, "claim_escrow", id);
+}
+
+export function buildCancelEscrowTransaction(fromPublicKey: string, id: number) {
+  return buildEscrowMutation(fromPublicKey, "cancel_escrow", id);
+}
+
+export async function getEscrow(callerPublicKey: string, id: number): Promise<EscrowRecord | null> {
+  if (!CONTRACT_ID) return null;
+  try {
+    const contract = new Contract(CONTRACT_ID);
+    const tx = new TransactionBuilder(
+      new Account(callerPublicKey, "0"),
+      { fee: STELLAR_BASE_FEE_STROOPS_STRING, networkPassphrase: NETWORK_PASSPHRASE },
+    )
+      .addOperation(contract.call("get_escrow", nativeToScVal(id, { type: "u32" })))
+      .setTimeout(30)
+      .build();
+    const sim = await sorobanServer.simulateTransaction(tx);
+    if (!rpc.Api.isSimulationSuccess(sim) || !sim.result) return null;
+    const decoded = scValToNative(sim.result.retval) as any;
+    // contract returns the Escrow struct as a map keyed by field name
+    return {
+      id: Number(decoded.id),
+      from: decoded.from,
+      to: decoded.to,
+      token: decoded.token,
+      amount: String(decoded.amount),
+      releaseLedger: Number(decoded.release_ledger),
+      status:
+        decoded.status?.tag ?? decoded.status ?? "Pending",
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function getCurrentLedger(): Promise<number> {
+  const latest = await sorobanServer.getLatestLedger();
+  return latest.sequence;
+}
